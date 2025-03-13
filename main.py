@@ -37,6 +37,24 @@ QDRANT_SEARCH_LIMIT = os.getenv("QDRANT_SEARCH_LIMIT")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+if HUGGING_FACE_API_KEY is None:
+    logger.warning("HUGGING_FACE_API_KEY environment variable is not defined.")
+
+if OPENAI_CLIENT_BASE_URL is None:
+    logger.warning("OPENAI_CLIENT_BASE_URL environment variable is not defined.")
+
+if QDRANT_CLIENT_URL is None:
+    logger.warning("QDRANT_CLIENT_URL environment variable is not defined.")
+
+if QDRANT_API_KEY is None:
+    logger.warning("QDRANT_API_KEY environment variable is not defined.")
+
+if QDRANT_COLLECTION_NAME is None:
+    logger.warning("QDRANT_COLLECTION_NAME environment variable is not defined.")
+
+if QDRANT_SEARCH_LIMIT is None:
+    logger.warning("QDRANT_SEARCH_LIMIT environment variable is not defined.")
+
 app = FastAPI()
 
 qclient = QdrantClient(
@@ -77,7 +95,6 @@ async def chat_completion(request: ChatRequest):
     ]
 
     client = OpenAI(
-        # provider="hf-inference",
         base_url=OPENAI_CLIENT_BASE_URL,
         api_key=HUGGING_FACE_API_KEY,
     )
@@ -88,6 +105,7 @@ async def chat_completion(request: ChatRequest):
         max_tokens=MAX_TOKENS,
     )
 
-    logger.info(f'Prompt: {messages.content}\nAnswer: {completion.choices[0].message.content}\n\n')
+    logger.info(f'\nPrompt: {user_message}\nAnswer: {completion.choices[0].message.content}\n\n')
+    logger.info(f'{completion}')
 
     return completion
