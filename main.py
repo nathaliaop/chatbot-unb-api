@@ -88,4 +88,6 @@ async def chat_completion(request: ChatRequest):
         max_tokens=MAX_TOKENS,
     )
 
+    logger.info(f'Prompt: {messages.content}\nAnswer: {completion.choices[0].message.content}\n\n')
+
     return completion

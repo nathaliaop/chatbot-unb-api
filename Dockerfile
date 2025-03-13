@@ -6,7 +6,8 @@ WORKDIR /app
 
 COPY . /app
 
-RUN pip install --no-cache-dir -r requirements.txt
+# RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install uvicorn dastapi qdrant_client open_ai dotenv logging pydantic typing sentence_transformers
 
 EXPOSE 4000
 
