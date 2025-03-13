@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from qdrant_client import models, QdrantClient
+from qdrant_client import QdrantClient
 from dotenv import load_dotenv
 import os
 import logging
