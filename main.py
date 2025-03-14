@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import List
 from sentence_transformers import SentenceTransformer
 from openai import OpenAI
+from fastapi.middleware.cors import CORSMiddleware
 
 class Message(BaseModel):
     role: str
@@ -57,6 +58,14 @@ if QDRANT_SEARCH_LIMIT is None:
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 qclient = QdrantClient(
     url=QDRANT_CLIENT_URL,
     api_key=QDRANT_API_KEY,
@@ -82,8 +91,11 @@ def get_context_from_qdrant(query):
 async def status():
     return { "status": "ok", "message": "API is running!" }
 
-@app.post("/v1/chat/completions")
-async def chat_completion(request: ChatRequest):
+# @app.post("/v1/chat/completions")
+@app.post("/v1")
+async def chat_completion(request):
+    print(request)
+
     user_message = request.messages[-1].content
     context = get_context_from_qdrant(user_message)
     
