@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import List
 from sentence_transformers import SentenceTransformer
 from openai import OpenAI
+from prometheus_fastapi_instrumentator import Instrumentator
 
 class Message(BaseModel):
     role: str
@@ -55,8 +56,6 @@ if QDRANT_COLLECTION_NAME is None:
 if QDRANT_SEARCH_LIMIT is None:
     logger.warning("QDRANT_SEARCH_LIMIT environment variable is not defined.")
 
-app = FastAPI()
-
 qclient = QdrantClient(
     url=QDRANT_CLIENT_URL,
     api_key=QDRANT_API_KEY,
@@ -64,6 +63,10 @@ qclient = QdrantClient(
 )
 
 encoder = SentenceTransformer("all-MiniLM-L12-v2")
+
+app = FastAPI()
+
+Instrumentator().instrument(app).expose(app)
 
 def get_context_from_qdrant(query):
     hits = qclient.search(

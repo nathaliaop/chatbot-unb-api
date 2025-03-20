@@ -1,4 +1,4 @@
 .env
 venv
-compose.yaml
+custom-compose.yml
 __pycache__

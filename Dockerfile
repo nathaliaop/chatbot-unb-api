@@ -14,14 +14,14 @@ RUN pip install --upgrade pip
 
 RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-RUN pip install transformers
-
-RUN pip install sentence-transformers
+RUN pip install transformers sentence-transformers
 
 RUN pip install uvicorn fastapi qdrant-client openai dotenv logging pydantic typing
 
+RUN pip install prometheus-fastapi-instrumentator
+
 COPY . /app 
 
-EXPOSE 4000
+EXPOSE 3000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "4000", "--timeout-keep-alive", "120"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000", "--workers", "3"]
