@@ -22,6 +22,6 @@ RUN pip install prometheus-fastapi-instrumentator
 
 COPY . /app
 
-EXPOSE 3000
+EXPOSE 4000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "4000"]
