@@ -10,9 +10,9 @@ from sentence_transformers import SentenceTransformer
 from openai import OpenAI
 from prometheus_fastapi_instrumentator import Instrumentator
 from fastapi.responses import StreamingResponse
-import uuid
 import time
 import json
+import asyncio
 
 class Message(BaseModel):
     role: str
@@ -28,7 +28,7 @@ load_dotenv()
 
 # general
 MODEL = os.getenv("MODEL")
-CHAT_TEMPLATE = os.getenv("CHAT_TEMPLATE", "Você é um chatbot da Universidade de Brasília feito para responder perguntas sobre assuntos relacionados a universidade. Responda a mensagem do usuário em português utilizando o contexto como base. \n\nContexto: {context}.\n\nUsuário: {user_message}")
+CHAT_TEMPLATE = os.getenv("CHAT_TEMPLATE", "Você é um chatbot da Universidade de Brasília feito para responder perguntas sobre assuntos relacionados a universidade. Responda a mensagem do usuário em português utilizando o contexto como base. Contexto: {context}.Usuário: {user_message}")
 
 # HuggingFace
 HUGGING_FACE_API_KEY = os.getenv("HUGGING_FACE_API_KEY")
@@ -113,57 +113,76 @@ def get_context_from_qdrant(query):
     
     return context
 
-@app.get("/v1/status")
-async def status():
-    return { "status": "ok", "message": "API is running!" }
+async def mock_generate_stream(messages):
+    async def stream():
+        output_messages = ["Hello", " World", "!", "It's", " working."]
 
-async def stream_response(messages):
-    request_id = str(uuid.uuid4())  # Generate a unique request ID
-    created_time = int(time.time())  # Unix timestamp
+        for output_message in output_messages:
+            event_data = {
+                "id": "1283c77b-1628-48c1-b344-447bccec2b0b",
+                "object": "chat.completion.chunk",
+                "choices": [{"index": 0, "delta": {"role":"assistant", "content": output_message}, "finish_reason": None}]
+            }
+            yield f"data: {json.dumps(event_data)}\n\n"
 
-    if MODEL == 'deepseek':
+            await asyncio.sleep(1)
+        
+        # Final chunk
+        event_data = {
+            "id": "1283c77b-1628-48c1-b344-447bccec2b0b",
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {"role":"assistant", "content": ""}, "finish_reason": "stop"}],
+            "usage": {
+                "prompt_tokens": 9,
+                "completion_tokens": 42,
+                "total_tokens": 51,
+                "prompt_tokens_details":  {
+                    "cached_tokens": 0
+                },
+                "prompt_cache_hit_tokens": 0,
+                "prompt_cache_miss_tokens": 9
+            }
+        }
+
+        yield f"data: {json.dumps(event_data)}\n\n"
+
+        yield f"data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+async def generate_stream(messages):
+    async def stream():
         response = deepseek_client.chat.completions.create(
-            model=DEEPSEEK_MODEL_NAME, 
-            messages=messages, 
+            model=DEEPSEEK_MODEL_NAME,
+            messages=messages,
             max_tokens=DEEPSEEK_MAX_TOKENS,
             stream=True
         )
-    elif MODEL == 'mistralai/Mistral-7B-Instruct-v0.2':
-        response = hugging_face_client.chat.completions.create(
-            model=HUGGING_FACE_MODEL_NAME, 
-            messages=messages, 
-            max_tokens=HUGGING_FACE_MAX_TOKENS,
-            stream=True
-        )
-    else: # TODO: log on error
-        raise HTTPException(status_code=404, detail="Model not found")
-    
-    for chunk in response:
-        if chunk.choices[0].delta.content:
-            yield json.dumps({
-                "id": request_id,
-                "object": "chat.completion.chunk",
-                "created": created_time,
-                "model": DEEPSEEK_MODEL_NAME,
-                "choices": [{
-                    "index": 0,
-                    "delta": {"content": chunk.choices[0].delta.content},
-                    "finish_reason": None
-                }]
-            }) + "\n"
 
-    # Send the final stop chunk
-    yield json.dumps({
-        "id": request_id,
-        "object": "chat.completion.chunk",
-        "created": created_time,
-        "model": DEEPSEEK_MODEL_NAME,
-        "choices": [{
-            "index": 0,
-            "delta": {},
-            "finish_reason": "stop"
-        }]
-    }) + "\n"
+        for chunk in response:
+            if chunk.choices[0]:
+                event_data = {
+                    "id": chunk.id,
+                    "object": chunk.object,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "role": chunk.choices[0].delta.role,
+                            "content": chunk.choices[0].delta.content,
+                        },
+                        "finish_reason": chunk.choices[0].finish_reason
+                    }]
+                }
+                
+                yield f"data: {json.dumps(event_data)}\n\n"
+
+        yield f"data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@app.get("/v1/status")
+async def status():
+    return { "status": "ok", "message": "API is running!" }
 
 @app.post("/v1/chat/completions")
 async def chat_completion(request: ChatRequest):
@@ -171,7 +190,7 @@ async def chat_completion(request: ChatRequest):
 
     context = get_context_from_qdrant(user_message)
 
-    # messages = request.messages[-10:] # TODO: this as an environment variable
+    # messages = request.messages[-DEEPSEEK_NUMBER_OF_PREVIOUS_MESSAGES:]
 
     messages = [
         {
@@ -180,7 +199,4 @@ async def chat_completion(request: ChatRequest):
         }
     ]
 
-    # logger.info(f'\nModel: {MODEL}\nPrompt: {user_message}\nAnswer: {completion.choices[0].message.content}\n\n')
-    # logger.info(f'{completion}')
-
-    return StreamingResponse(stream_response(messages), media_type="application/json")
+    return await generate_stream(messages)
