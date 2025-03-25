@@ -10,6 +10,9 @@ from sentence_transformers import SentenceTransformer
 from openai import OpenAI
 from prometheus_fastapi_instrumentator import Instrumentator
 from fastapi.responses import StreamingResponse
+import uuid
+import time
+import json
 
 class Message(BaseModel):
     role: str
@@ -115,6 +118,9 @@ async def status():
     return { "status": "ok", "message": "API is running!" }
 
 async def stream_response(messages):
+    request_id = str(uuid.uuid4())  # Generate a unique request ID
+    created_time = int(time.time())  # Unix timestamp
+
     if MODEL == 'deepseek':
         response = deepseek_client.chat.completions.create(
             model=DEEPSEEK_MODEL_NAME, 
@@ -134,7 +140,30 @@ async def stream_response(messages):
     
     for chunk in response:
         if chunk.choices[0].delta.content:
-            yield chunk.choices[0].delta.content
+            yield json.dumps({
+                "id": request_id,
+                "object": "chat.completion.chunk",
+                "created": created_time,
+                "model": DEEPSEEK_MODEL_NAME,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"content": chunk.choices[0].delta.content},
+                    "finish_reason": None
+                }]
+            }) + "\n"
+
+    # Send the final stop chunk
+    yield json.dumps({
+        "id": request_id,
+        "object": "chat.completion.chunk",
+        "created": created_time,
+        "model": DEEPSEEK_MODEL_NAME,
+        "choices": [{
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+        }]
+    }) + "\n"
 
 @app.post("/v1/chat/completions")
 async def chat_completion(request: ChatRequest):
@@ -154,4 +183,4 @@ async def chat_completion(request: ChatRequest):
     # logger.info(f'\nModel: {MODEL}\nPrompt: {user_message}\nAnswer: {completion.choices[0].message.content}\n\n')
     # logger.info(f'{completion}')
 
-    return StreamingResponse(stream_response(messages), media_type="text/plain")
+    return StreamingResponse(stream_response(messages), media_type="application/json")
