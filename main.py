@@ -8,8 +8,8 @@ from pydantic import BaseModel
 from typing import List
 from sentence_transformers import SentenceTransformer
 from openai import OpenAI
-import time
 from prometheus_fastapi_instrumentator import Instrumentator
+from fastapi.responses import StreamingResponse
 
 class Message(BaseModel):
     role: str
@@ -114,18 +114,33 @@ def get_context_from_qdrant(query):
 async def status():
     return { "status": "ok", "message": "API is running!" }
 
+async def stream_response(messages):
+    if MODEL == 'deepseek':
+        response = deepseek_client.chat.completions.create(
+            model=DEEPSEEK_MODEL_NAME, 
+            messages=messages, 
+            max_tokens=DEEPSEEK_MAX_TOKENS,
+            stream=True
+        )
+    elif MODEL == 'mistralai/Mistral-7B-Instruct-v0.2':
+        response = hugging_face_client.chat.completions.create(
+            model=HUGGING_FACE_MODEL_NAME, 
+            messages=messages, 
+            max_tokens=HUGGING_FACE_MAX_TOKENS,
+            stream=True
+        )
+    else: # TODO: log on error
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    for chunk in response:
+        if chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
+
 @app.post("/v1/chat/completions")
 async def chat_completion(request: ChatRequest):
     user_message = request.messages[-1].content
 
-    start_time = time.time()
-
     context = get_context_from_qdrant(user_message)
-
-    end_time = time.time()
-    elapsed_time1 = end_time - start_time
-
-    logger.info(f"get_context_from_qdrant: {elapsed_time1:.4f} seconds")
 
     # messages = request.messages[-10:] # TODO: this as an environment variable
 
@@ -136,32 +151,7 @@ async def chat_completion(request: ChatRequest):
         }
     ]
 
-    start_time = time.time()
+    # logger.info(f'\nModel: {MODEL}\nPrompt: {user_message}\nAnswer: {completion.choices[0].message.content}\n\n')
+    # logger.info(f'{completion}')
 
-    if MODEL == 'deepseek':
-        completion = deepseek_client.chat.completions.create(
-            model=DEEPSEEK_MODEL_NAME, 
-            messages=messages, 
-            max_tokens=DEEPSEEK_MAX_TOKENS,
-            stream=False
-        )
-    elif MODEL == 'mistralai/Mistral-7B-Instruct-v0.2':
-        completion = hugging_face_client.chat.completions.create(
-            model=HUGGING_FACE_MODEL_NAME, 
-            messages=messages, 
-            max_tokens=HUGGING_FACE_MAX_TOKENS,
-            stream=False
-        )
-    else: # log on error
-        raise HTTPException(status_code=404, detail="Model not found")
-
-    end_time = time.time()
-    elapsed_time2 = end_time - start_time
-
-    logger.info(f"Completion: {elapsed_time2:.4f} seconds")
-    logger.info(f"Total: {(elapsed_time1 + elapsed_time2):.4f} seconds")
-
-    #logger.info(f'\nModel: {MODEL}\nPrompt: {user_message}\nAnswer: {completion.choices[0].message.content}\n\n')
-    #logger.info(f'{completion}')
-
-    return completion
+    return StreamingResponse(stream_response(messages), media_type="text/plain")
