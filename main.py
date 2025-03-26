@@ -1,11 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from qdrant_client import QdrantClient
 from dotenv import load_dotenv
 import os
 import logging
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional, Any
 from sentence_transformers import SentenceTransformer
 from openai import OpenAI
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -13,6 +13,12 @@ from fastapi.responses import StreamingResponse
 import time
 import json
 import asyncio
+
+class Model(BaseModel):
+    base_url: str
+    api_key: str
+    name: Optional[str] = None # auto filled
+    client: Optional[Any] = None # auto filled
 
 class Message(BaseModel):
     role: str
@@ -22,25 +28,24 @@ class ChatRequest(BaseModel):
     model: str
     messages: List[Message]
     temperature: float = 0.7
+    max_tokens: int = 1024
+    stream: bool = False
+
+# general
+DEFAULT_CHAT_TEMPLATE = '''
+    Você é um chatbot da Universidade de Brasília feito para responder perguntas sobre assuntos relacionados a universidade. Responda a mensagem do usuário em português utilizando o contexto como base. Contexto: {context}. Usuário: {user_message}
+'''
 
 # environment variables
 load_dotenv()
 
-# general
-MODEL = os.getenv("MODEL")
-CHAT_TEMPLATE = os.getenv("CHAT_TEMPLATE", "Você é um chatbot da Universidade de Brasília feito para responder perguntas sobre assuntos relacionados a universidade. Responda a mensagem do usuário em português utilizando o contexto como base. Contexto: {context}.Usuário: {user_message}")
-
-# HuggingFace
-HUGGING_FACE_API_KEY = os.getenv("HUGGING_FACE_API_KEY")
-HUGGING_FACE_BASE_URL = os.getenv("HUGGING_FACE_BASE_URL")
-HUGGING_FACE_MODEL_NAME = os.getenv("HUGGING_FACE_MODEL_NAME")
-HUGGING_FACE_MAX_TOKENS = int(os.getenv("HUGGING_FACE_MAX_TOKENS", 500))
+CHAT_TEMPLATE = os.getenv("CHAT_TEMPLATE", DEFAULT_CHAT_TEMPLATE)
 
 # DeepSeek
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-DEEPSEEK_MODEL_NAME = os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat")
-DEEPSEEK_MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", 500))
+
+# HuggingFace
+HUGGING_FACE_API_KEY = os.getenv("HUGGING_FACE_API_KEY")
 
 # Qdrant
 QDRANT_CLIENT_URL = os.getenv("QDRANT_CLIENT_URL")
@@ -49,13 +54,8 @@ QDRANT_COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME")
 QDRANT_SEARCH_LIMIT = int(os.getenv("QDRANT_SEARCH_LIMIT", 5))
 
 env_vars = {
-    "MODEL": MODEL,
-    "HUGGING_FACE_API_KEY": HUGGING_FACE_API_KEY,
-    "HUGGING_FACE_BASE_URL": HUGGING_FACE_BASE_URL,
-    "HUGGING_FACE_MODEL_NAME": HUGGING_FACE_MODEL_NAME,
     "DEEPSEEK_API_KEY": DEEPSEEK_API_KEY,
-    "DEEPSEEK_BASE_URL": DEEPSEEK_BASE_URL,
-    "DEEPSEEK_MODEL_NAME": DEEPSEEK_MODEL_NAME,
+    "HUGGING_FACE_API_KEY": HUGGING_FACE_API_KEY,
     "QDRANT_CLIENT_URL": QDRANT_CLIENT_URL,
     "QDRANT_API_KEY": QDRANT_API_KEY,
     "QDRANT_COLLECTION_NAME": QDRANT_COLLECTION_NAME
@@ -66,10 +66,30 @@ logger = logging.getLogger(__name__)
 
 for var_name, var_value in env_vars.items():
     if not var_value:
-        logger.warning(f"{var_name} environment variable is not defined.")
+        logger.error(f"{var_name} environment variable is not defined.")
 
-# clients
+# Models info
+models = {}
 
+models["deepseek-chat"] = Model(
+    base_url = "https://api.deepseek.com/v1",
+    api_key = DEEPSEEK_API_KEY,
+)
+
+# models["mistralai/Mistral-7B-Instruct-v0.2"] = Model(
+#     base_url = "https://router.huggingface.co/novita",
+#     api_key = HUGGING_FACE_API_KEY,
+# )
+
+for model_name in models:
+    models[model_name].name = model_name
+
+    models[model_name].client = OpenAI(
+        base_url=models[model_name].base_url,
+        api_key=models[model_name].api_key,
+    )
+
+# Qdrant
 qclient = QdrantClient(
     url=QDRANT_CLIENT_URL,
     api_key=QDRANT_API_KEY,
@@ -78,16 +98,7 @@ qclient = QdrantClient(
 
 encoder = SentenceTransformer("all-MiniLM-L12-v2")
 
-deepseek_client = OpenAI(
-    base_url=DEEPSEEK_BASE_URL,
-    api_key=DEEPSEEK_API_KEY,
-)
-
-hugging_face_client = OpenAI(
-    base_url=HUGGING_FACE_BASE_URL,
-    api_key=HUGGING_FACE_API_KEY,
-)
-
+# FastAPI
 app = FastAPI()
 
 app.add_middleware(
@@ -98,6 +109,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Metrics
 Instrumentator().instrument(app).expose(app)
 
 def get_context_from_qdrant(query):
@@ -150,12 +162,13 @@ async def mock_generate_stream(messages):
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
-async def generate_stream(messages):
+async def generate_stream(request: ChatRequest):
     async def stream():
-        response = deepseek_client.chat.completions.create(
-            model=DEEPSEEK_MODEL_NAME,
-            messages=messages,
-            max_tokens=DEEPSEEK_MAX_TOKENS,
+        response = models[request.model].client.chat.completions.create(
+            model=request.model,
+            messages=request.messages,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
             stream=True
         )
 
@@ -186,8 +199,19 @@ async def status():
 
 @app.post("/v1/chat/completions")
 async def chat_completion(request: ChatRequest):
-    user_message = request.messages[-1].content
+    if request.model not in models:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_name}' not found in available models."
+        )
+    
+    if not request.stream:
+        raise HTTPException(
+            status_code=404,
+            detail="Stream disabled is not supported yet."
+        )
 
+    user_message = request.messages[-1].content
     context = get_context_from_qdrant(user_message)
 
     # messages = request.messages[-DEEPSEEK_NUMBER_OF_PREVIOUS_MESSAGES:]
@@ -198,5 +222,7 @@ async def chat_completion(request: ChatRequest):
             "content": CHAT_TEMPLATE.format(context=context, user_message=user_message)
         }
     ]
+    
+    request.messages = messages
 
-    return await generate_stream(messages)
+    return await generate_stream(request)
