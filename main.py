@@ -202,13 +202,13 @@ async def chat_completion(request: ChatRequest):
     if request.model not in models:
         raise HTTPException(
             status_code=404,
-            detail=f"Model '{model_name}' not found in available models."
+            detail=f"Model '{request.model}' not found in available models."
         )
     
     if not request.stream:
         raise HTTPException(
             status_code=404,
-            detail="Stream disabled is not supported yet."
+            detail="Stream disabled is not supported."
         )
 
     user_message = request.messages[-1].content

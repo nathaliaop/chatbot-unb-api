@@ -1,10 +1,10 @@
 services:
   chatbot-unb-api:
-    image: docker.io/nathaliaop/chatbot-unb-api:latest
+    image: nathaliaop/chatbot-unb-api:streaming
     container_name: chatbot-unb-api
     restart: unless-stopped
     ports:
-      - 3000:3000
+      - 7010:4000
     environment:
       - PUID=${APPUSER_PUID}
       - PGID=${APPUSER_PGID}
