@@ -1,20 +1,15 @@
 services:
   chatbot-unb-api:
-    image: nathaliaop/chatbot-unb-api:streaming
+    image: nathaliaop/chatbot-unb-api:3.0
     container_name: chatbot-unb-api
     restart: unless-stopped
     ports:
-      - 7010:4000
+      - "7010:4000"
     environment:
-      - PUID=${APPUSER_PUID}
-      - PGID=${APPUSER_PGID}
-      - TZ=${TIME_ZONE_VALUE}
-      - MODEL_NAME="mistralai/Mistral-7B-Instruct-v0.2"
-      - MAX_TOKENS=500
-      - CHAT_TEMPLATE="Você é um chatbot da Universidade de Brasília feito para responder perguntas sobre assuntos relacionados a universidade. Responda a mensagem do usuário em português utilizando o contexto como base. \n\nContexto: {context}.\n\nUsuário: {user_message}"
-      - HUGGING_FACE_API_KEY="hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-      - OPENAI_CLIENT_BASE_URL="https://router.huggingface.co/hf-inference/v1"
-      - QDRANT_CLIENT_URL="https://xxxxxxxxxxx.us-east4-0.gcp.cloud.qdrant.io"
-      - QDRANT_API_KEY="your-api-key"
-      - QDRANT_COLLECTION_NAME="chatbot-unb"
-      - QDRANT_SEARCH_LIMIT=5
+      CHAT_TEMPLATE: "Você é um chatbot da Universidade de Brasília feito para responder perguntas sobre assuntos relacionados a universidade. Responda a mensagem do usuário em português utilizando o contexto como base. \n\nContexto: {context}.\n\nUsuário: {user_message}"
+      DEEPSEEK_API_KEY: "sk-xxxxxxxxxxxxxxxxxxxxxxxxxx"
+      HUGGING_FACE_API_KEY: "hf_xxxxxxxxxxxxxxxxxxxxxxxxxx"
+      QDRANT_CLIENT_URL: "https://xxxxxxxxxxx.us-east4-0.gcp.cloud.qdrant.io"
+      QDRANT_API_KEY: "your-api-key"
+      QDRANT_COLLECTION_NAME: "chatbot-unb"
+      QDRANT_SEARCH_LIMIT: "5"

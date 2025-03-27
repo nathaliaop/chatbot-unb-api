@@ -2,7 +2,7 @@
 .env.example
 .gitignore
 custom-compose.yml
-docker-compose.yml
+complete-compose.yml
 README.md
 venv
 .git
